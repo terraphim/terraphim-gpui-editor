@@ -1,0 +1,50 @@
+[package]
+name = "terraphim-gpui-editor"
+version = "0.1.0"
+edition = "2021"
+description = "GPUI-based desktop editor with Terraphim autocomplete and slash commands"
+authors = ["Terraphim Contributors"]
+license = "Apache-2.0"
+
+[dependencies]
+# GPUI framework
+gpui = "0.2"
+
+# UI components with completion support
+gpui-component = { path = "../terraphim-ai-gpui/tmp/gpui-component/crates/ui" }
+gpui-component-assets = { path = "../terraphim-ai-gpui/tmp/gpui-component/crates/assets" }
+
+# Terraphim autocomplete
+terraphim_automata = { path = "../terraphim-ai/crates/terraphim_automata" }
+terraphim_types = { path = "../terraphim-ai/crates/terraphim_types" }
+
+# LSP types for completion items (must match gpui-component's version)
+lsp-types = "0.97"
+
+# Rope text buffer
+ropey = "1.6"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Async
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+# criterion = "0.5"  # Uncomment when adding benchmarks
+
+[lints.rust]
+unsafe_code = "warn"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
