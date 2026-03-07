@@ -69,10 +69,6 @@ mod tests {
         assert!(HeadingCommand.accepts_arguments());
     }
 
-    #[test]
-    fn test_complete_argument() {
-        let completions = HeadingCommand.complete_argument("", &mut todo!(), &mut todo!());
-        // This test would need GPUI context, so we'll skip the actual call
-        // Just verify the method exists and compiles
-    }
+    // Note: test_complete_argument requires GPUI context (Window/App)
+    // which can't be easily created in unit tests. Test via story example instead.
 }

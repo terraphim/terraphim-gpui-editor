@@ -17,6 +17,7 @@ gpui-component-assets = { path = "../terraphim-ai-gpui/tmp/gpui-component/crates
 # Terraphim autocomplete
 terraphim_automata = { path = "../terraphim-ai/crates/terraphim_automata" }
 terraphim_types = { path = "../terraphim-ai/crates/terraphim_types" }
+terraphim-markdown-parser = { path = "../terraphim-ai/crates/terraphim-markdown-parser" }
 
 # LSP types for completion items (must match gpui-component's version)
 lsp-types = "0.97"
@@ -38,8 +39,10 @@ futures = "0.3"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 
 [dev-dependencies]
+indoc = "2"
 # criterion = "0.5"  # Uncomment when adding benchmarks
 
 [lints.rust]

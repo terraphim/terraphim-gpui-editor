@@ -1,0 +1,43 @@
+[package]
+name = "terraphim-gpui-story"
+version = "0.1.0"
+edition = "2021"
+description = "Visual testing and examples for terraphim-gpui-editor"
+authors = ["Terraphim Contributors"]
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# GPUI framework
+gpui = "0.2"
+
+# UI components
+gpui-component = { path = "../../../terraphim-ai-gpui/tmp/gpui-component/crates/ui" }
+gpui-component-assets = { path = "../../../terraphim-ai-gpui/tmp/gpui-component/crates/assets" }
+
+# Main editor crate
+terraphim-gpui-editor = { path = "../.." }
+
+# Terraphim autocomplete
+terraphim_automata = { path = "../../../terraphim-ai/crates/terraphim_automata" }
+terraphim_types = { path = "../../../terraphim-ai/crates/terraphim_types" }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+[[bin]]
+name = "story"
+path = "src/main.rs"
+
+[[example]]
+name = "autocomplete"
+path = "examples/autocomplete.rs"
+
+[[example]]
+name = "slash_commands"
+path = "examples/slash_commands.rs"
+
+[[example]]
+name = "editor"
+path = "examples/editor.rs"

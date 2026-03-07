@@ -3,10 +3,15 @@
 //! A GPUI-based desktop editor with intelligent autocomplete powered by
 //! terraphim_automata and slash command support.
 
+#![recursion_limit = "256"]
+
 pub mod commands;
 pub mod completion;
 pub mod editor;
 pub mod slash_command;
+
+#[cfg(test)]
+mod test_helpers;
 
 pub use completion::{CompletionConfig, TerraphimCompletionProvider};
 pub use editor::TerraphimEditor;

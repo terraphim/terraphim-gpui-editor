@@ -16,6 +16,8 @@ use terraphim_types::Thesaurus;
 struct AppConfig {
     /// Path to thesaurus JSON file (optional)
     thesaurus_path: Option<PathBuf>,
+    /// Path to markdown file (optional)
+    file_path: Option<PathBuf>,
     /// Window title
     title: String,
     /// Window size
@@ -26,6 +28,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             thesaurus_path: None,
+            file_path: None,
             title: "Terraphim Editor".to_string(),
             size: size(px(900.), px(700.)),
         }
@@ -146,9 +149,18 @@ fn main() {
         // Open main window
         cx.spawn(async move |cx| {
             cx.open_window(window_options, |window, cx| {
+                let file_path = config.file_path.clone();
                 let editor = cx.new(|cx| {
                     TerraphimEditor::new(index, commands, "Terraphim Editor", window, cx)
                 });
+
+                if let Some(path) = file_path {
+                    editor.update(cx, |editor, cx| {
+                        if let Err(err) = editor.open_file(path, window, cx) {
+                            log::error!("Failed to open file: {}", err);
+                        }
+                    });
+                }
 
                 // Wrap in Root for proper theming
                 cx.new(|cx| Root::new(editor, window, cx))
@@ -195,6 +207,12 @@ fn parse_args() -> AppConfig {
                     i += 1;
                 }
             }
+            "--file" | "-f" => {
+                if i + 1 < args.len() {
+                    config.file_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                }
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -224,6 +242,7 @@ USAGE:
 
 OPTIONS:
     -t, --thesaurus <PATH>    Path to thesaurus JSON file
+    -f, --file <PATH>         Path to markdown file to open
         --title <TITLE>       Window title
     -h, --help                Print help
 
@@ -231,6 +250,7 @@ EXAMPLES:
     terraphim-gpui-editor                        # Use demo thesaurus
     terraphim-gpui-editor my_thesaurus.json      # Load custom thesaurus
     terraphim-gpui-editor -t /path/to/thesaurus.json
+    terraphim-gpui-editor -f notes.md            # Open markdown file
 
 KEYBINDINGS:
     /           Start slash command
