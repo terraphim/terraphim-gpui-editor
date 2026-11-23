@@ -185,14 +185,11 @@ fn create_demo_index() -> Arc<AutocompleteIndex> {
     ];
 
     for (key, normalized, id) in terms {
-        let normalized_term = NormalizedTerm {
-            id,
-            value: NormalizedTermValue::from(normalized),
-            url: Some(format!(
+        let normalized_term = NormalizedTerm::new(id, NormalizedTermValue::from(normalized))
+            .with_url(format!(
                 "https://terraphim.ai/terms/{}",
                 normalized.replace('_', "-")
-            )),
-        };
+            ));
         thesaurus.insert(NormalizedTermValue::from(key), normalized_term);
     }
 

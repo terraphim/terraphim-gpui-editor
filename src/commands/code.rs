@@ -31,15 +31,15 @@ const LANGUAGES: &[&str] = &[
 ];
 
 impl SlashCommand for CodeCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "code"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Insert code block"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /code [language]\n\n\
          Inserts a markdown code block.\n\
          Optionally specify a language for syntax highlighting.\n\n\
@@ -54,21 +54,16 @@ impl SlashCommand for CodeCommand {
     }
 
     fn execute(&self, args: &[String], _window: &mut Window, _cx: &mut App) -> CommandOutput {
-        let lang = args.first().map(String::as_str).unwrap_or("");
-        CommandOutput::insert(format!("```{}\n\n```", lang))
+        let lang = args.first().map_or("", String::as_str);
+        CommandOutput::insert(format!("```{lang}\n\n```"))
     }
 
-    fn complete_argument(
-        &self,
-        partial: &str,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> Vec<String> {
+    fn complete_argument(&self, partial: &str, _window: &mut Window, _cx: &mut App) -> Vec<String> {
         let partial_lower = partial.to_lowercase();
         LANGUAGES
             .iter()
             .filter(|l| l.starts_with(&partial_lower))
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect()
     }
 }
@@ -88,8 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn test_languages_not_empty() {
-        assert!(!LANGUAGES.is_empty());
+    fn test_languages_support_rust() {
         assert!(LANGUAGES.contains(&"rust"));
     }
 }

@@ -6,24 +6,28 @@ description = "GPUI-based desktop editor with Terraphim autocomplete and slash c
 authors = ["Terraphim Contributors"]
 license = "Apache-2.0"
 
+[features]
+# Test-only FastGPUI debug protocol adapter for the shipped GPUI core.
+gdp = ["gpui/test-support"]
+
 [dependencies]
 # GPUI framework
 gpui = "0.2"
 
 # UI components with completion support
-gpui-component = { path = "../terraphim-ai-gpui/tmp/gpui-component/crates/ui" }
-gpui-component-assets = { path = "../terraphim-ai-gpui/tmp/gpui-component/crates/assets" }
+gpui-component = "=0.5.0-preview2"
+gpui-component-assets = "=0.5.0-preview2"
 
 # Terraphim autocomplete
-terraphim_automata = { path = "../terraphim-ai/crates/terraphim_automata" }
-terraphim_types = { path = "../terraphim-ai/crates/terraphim_types" }
-terraphim-markdown-parser = { path = "../terraphim-ai/crates/terraphim-markdown-parser" }
+terraphim_automata = "=2.1.0"
+terraphim_types = "=1.22.3"
+terraphim-markdown-parser = "=1.20.5"
+terraphim_alternatives = "=0.1.1"
+terraphim_lsp_core = "=1.23.1"
+markdown = "1.0.0"
 
 # LSP types for completion items (must match gpui-component's version)
 lsp-types = "0.97"
-
-# Rope text buffer
-ropey = "1.6"
 
 # Error handling
 anyhow = "1.0"
@@ -40,8 +44,20 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+sha2 = "0.10"
+tempfile = "3"
+url = "2"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Compile Metal shaders at runtime so builds need no separate Xcode Metal Toolchain.
+gpui = { version = "0.2", features = ["runtime_shaders"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSResponder", "NSWindow"] }
+tray-icon = { version = "0.26.1", default-features = false }
 
 [dev-dependencies]
+gpui = { version = "0.2", features = ["test-support"] }
 indoc = "2"
 # criterion = "0.5"  # Uncomment when adding benchmarks
 

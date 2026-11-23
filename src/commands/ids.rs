@@ -6,15 +6,15 @@ use gpui::{App, Window};
 pub struct IdsCommand;
 
 impl SlashCommand for IdsCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ids"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Insert missing Terraphim block IDs"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /ids\n\nEnsures every list item and paragraph has a Terraphim block id."
     }
 
@@ -26,15 +26,15 @@ impl SlashCommand for IdsCommand {
 pub struct NormalizeCommand;
 
 impl SlashCommand for NormalizeCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "normalize"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Normalize markdown and insert missing block IDs"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /normalize\n\nAlias for /ids."
     }
 

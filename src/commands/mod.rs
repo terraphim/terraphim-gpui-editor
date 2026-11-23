@@ -2,10 +2,10 @@
 //!
 //! This module provides the default set of slash commands available in the editor.
 
+mod blocks;
 mod code;
 mod heading;
 mod help;
-mod blocks;
 mod ids;
 mod list;
 mod open;

@@ -6,15 +6,15 @@ use gpui::{App, Window};
 pub struct SaveCommand;
 
 impl SlashCommand for SaveCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "save"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Save markdown to disk (normalizes block IDs)"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /save [path]\n\nSaves normalized markdown to the current file path or the provided path."
     }
 

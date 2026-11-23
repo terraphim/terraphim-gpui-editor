@@ -1,0 +1,3 @@
+# ODK v0.1.0-rc.3 uses dev.toml. Current ODK uses oma.toml.
+build = [["sh", "build.sh"]]
+executable = "../../target/x86_64-unknown-linux-gnu/release/terraphim-gpui-editor"

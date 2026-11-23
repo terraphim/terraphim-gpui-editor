@@ -6,15 +6,15 @@ use gpui::{App, Window};
 pub struct BlocksCommand;
 
 impl SlashCommand for BlocksCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "blocks"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Toggle block sidebar"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /blocks\n\nShow or hide the block sidebar."
     }
 

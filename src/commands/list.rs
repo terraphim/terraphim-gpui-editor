@@ -7,15 +7,15 @@ use gpui::{App, Window};
 pub struct ListCommand;
 
 impl SlashCommand for ListCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "list"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Insert list item"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /list [type]\n\n\
          Inserts a markdown list item.\n\
          Type can be 'bullet' (default) or 'numbered'.\n\n\
@@ -30,7 +30,7 @@ impl SlashCommand for ListCommand {
     }
 
     fn execute(&self, args: &[String], _window: &mut Window, _cx: &mut App) -> CommandOutput {
-        let list_type = args.first().map(String::as_str).unwrap_or("bullet");
+        let list_type = args.first().map_or("bullet", String::as_str);
 
         let prefix = match list_type {
             "numbered" | "number" | "num" | "1" => "1. ",
@@ -40,17 +40,12 @@ impl SlashCommand for ListCommand {
         CommandOutput::insert(prefix.to_string())
     }
 
-    fn complete_argument(
-        &self,
-        partial: &str,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> Vec<String> {
+    fn complete_argument(&self, partial: &str, _window: &mut Window, _cx: &mut App) -> Vec<String> {
         let options = ["bullet", "numbered"];
         options
             .iter()
             .filter(|o| o.starts_with(partial))
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect()
     }
 }

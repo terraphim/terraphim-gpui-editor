@@ -12,15 +12,15 @@ publish = false
 gpui = "0.2"
 
 # UI components
-gpui-component = { path = "../../../terraphim-ai-gpui/tmp/gpui-component/crates/ui" }
-gpui-component-assets = { path = "../../../terraphim-ai-gpui/tmp/gpui-component/crates/assets" }
+gpui-component = "=0.5.0-preview2"
+gpui-component-assets = "=0.5.0-preview2"
 
 # Main editor crate
 terraphim-gpui-editor = { path = "../.." }
 
 # Terraphim autocomplete
-terraphim_automata = { path = "../../../terraphim-ai/crates/terraphim_automata" }
-terraphim_types = { path = "../../../terraphim-ai/crates/terraphim_types" }
+terraphim_automata = "=2.1.0"
+terraphim_types = "=1.22.3"
 
 # Logging
 log = "0.4"

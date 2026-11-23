@@ -6,15 +6,15 @@ use gpui::{App, Window};
 pub struct OpenCommand;
 
 impl SlashCommand for OpenCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "open"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Open a markdown file from disk"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /open <path>\n\nLoads the file and normalizes Terraphim block IDs."
     }
 

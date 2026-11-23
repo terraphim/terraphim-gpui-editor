@@ -1,0 +1,2 @@
+build = [["sh", "build.sh"]]
+executable = "../../target/x86_64-unknown-linux-gnu/release/terraphim-gpui-editor=terraphim-gpui-editor"
