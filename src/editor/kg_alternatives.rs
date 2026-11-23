@@ -1,6 +1,8 @@
-use super::TerraphimEditor;
+use super::{tree_view, TerraphimEditor};
 use crate::completion::TerraphimCompletionProvider;
+use crate::dependency_tree::TreeGroup;
 use crate::kg_records::{KgRecord, RoleSource};
+use gpui::prelude::FluentBuilder;
 use gpui::{
     div, px, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window,
@@ -8,12 +10,25 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState};
 use gpui_component::{ActiveTheme, Sizable};
-use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+    rc::Rc,
+    sync::Arc,
+};
 
 pub(super) struct KgAlternatives {
     sources: HashMap<SharedString, RoleSource>,
     input: Entity<InputState>,
     draft: Option<Draft>,
+    tree: Option<Result<ConceptOutline, String>>,
+}
+
+struct ConceptOutline {
+    focused_id: u64,
+    label: String,
+    groups: Vec<TreeGroup>,
+    expanded: HashSet<String>,
 }
 
 struct Draft {
@@ -27,6 +42,7 @@ impl KgAlternatives {
             sources: HashMap::new(),
             input: cx.new(|cx| InputState::new(window, cx).multi_line(true)),
             draft: None,
+            tree: None,
         }
     }
 
@@ -174,10 +190,106 @@ impl TerraphimEditor {
 
     fn close_kg_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(draft) = self.kg_alternatives.draft.take() {
+            self.kg_alternatives.tree = None;
             self.focus_document(window, cx);
             self.focus_offset(draft.cursor, window, cx);
             self.document_status = None;
             cx.notify();
+        }
+    }
+
+    fn toggle_concept_tree(&mut self, cx: &mut Context<Self>) {
+        if self.kg_alternatives.tree.take().is_some() {
+            cx.notify();
+        } else if let Some(draft) = &self.kg_alternatives.draft {
+            self.focus_concept_tree(draft.record.id, cx);
+        }
+    }
+
+    fn focus_concept_tree(&mut self, id: u64, cx: &mut Context<Self>) {
+        let role = &self.roles[self.active_role].0;
+        let tree = self
+            .kg_alternatives
+            .sources
+            .get(role)
+            .ok_or_else(|| anyhow::anyhow!("Load a Markdown role to inspect concept relationships"))
+            .and_then(|source| {
+                Ok(ConceptOutline {
+                    focused_id: id,
+                    label: source.record(id)?.canonical,
+                    groups: source.concept_tree(id)?,
+                    expanded: HashSet::new(),
+                })
+            });
+        self.kg_alternatives.tree = Some(tree.map_err(|error| error.to_string()));
+        cx.notify();
+    }
+
+    #[cfg(feature = "gdp")]
+    /// Inspect the visible concept outline through the test driver.
+    #[must_use]
+    pub fn headless_concept_tree(&self) -> serde_json::Value {
+        match &self.kg_alternatives.tree {
+            Some(Ok(tree)) => serde_json::json!({
+                "concept_id": tree.focused_id.to_string(),
+                "label": tree.label,
+                "groups": tree.groups,
+            }),
+            Some(Err(error)) => serde_json::json!({"error": error}),
+            None => serde_json::Value::Null,
+        }
+    }
+
+    fn render_concept_tree(&self, cx: &Context<Self>) -> impl IntoElement {
+        let view = div().flex().flex_col().gap_1();
+        match &self.kg_alternatives.tree {
+            Some(Ok(tree)) => view
+                .child(
+                    div()
+                        .debug_selector(|| "concept-tree-heading".into())
+                        .child(format!("Concept tree · {}", tree.label)),
+                )
+                .when_some(
+                    self.kg_alternatives
+                        .draft
+                        .as_ref()
+                        .map(|draft| draft.record.id)
+                        .filter(|id| *id != tree.focused_id),
+                    |view, id| {
+                        view.child(
+                            Button::new("kg-tree-back")
+                                .debug_selector(|| "kg-tree-back".into())
+                                .label("Back to original concept")
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(move |editor, _, _, cx| {
+                                    editor.focus_concept_tree(id, cx);
+                                })),
+                        )
+                    },
+                )
+                .when(tree.groups.is_empty(), |view| {
+                    view.child("No declared relationships for this concept")
+                })
+                .child(tree_view::render(
+                    "concept-tree",
+                    &tree.groups,
+                    &tree.expanded,
+                    |editor, path, cx| {
+                        if let Some(Ok(tree)) = &mut editor.kg_alternatives.tree {
+                            tree_view::toggle(&mut tree.expanded, path);
+                            cx.notify();
+                        }
+                    },
+                    |editor, id, cx| {
+                        if let Ok(id) = id.parse() {
+                            editor.focus_concept_tree(id, cx);
+                        }
+                    },
+                    cx,
+                )),
+            Some(Err(error)) => view.child(format!("Concept tree unavailable · {error}")),
+            None => view,
         }
     }
 
@@ -199,8 +311,7 @@ impl TerraphimEditor {
                     .and_then(|draft| source.record_path(draft.record.id).ok())
             })
             .map_or_else(String::new, |path| path.display().to_string());
-        div()
-            .key_context("TerraphimKgAlternatives")
+        tree_view::keyboard_navigation(div(), "TerraphimKgAlternatives")
             .capture_action(cx.listener(|this, _: &super::Cancel, window, cx| {
                 cx.stop_propagation();
                 this.close_kg_alternatives(window, cx);
@@ -242,6 +353,20 @@ impl TerraphimEditor {
                             })),
                     )
                     .child(
+                        Button::new("kg-concept-tree")
+                            .debug_selector(|| "kg-concept-tree".into())
+                            .label(if self.kg_alternatives.tree.is_some() {
+                                "Hide concept tree"
+                            } else {
+                                "Concept tree"
+                            })
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_concept_tree(cx);
+                            })),
+                    )
+                    .child(
                         Button::new("kg-cancel-synonyms")
                             .debug_selector(|| "kg-cancel-synonyms".into())
                             .label("Cancel")
@@ -252,5 +377,8 @@ impl TerraphimEditor {
                             })),
                     ),
             )
+            .when(self.kg_alternatives.tree.is_some(), |pane| {
+                pane.child(self.render_concept_tree(cx))
+            })
     }
 }

@@ -3,8 +3,8 @@
 use super::{editor_window_options, prepare_editor, AppConfig};
 use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
-    point, px, Bounds, ClipboardItem, Entity, Keystroke, Modifiers, MouseButton, Pixels,
-    TestAppContext, VisualTestContext,
+    point, px, Bounds, ClipboardItem, Entity, KeyUpEvent, Keystroke, Modifiers, MouseButton,
+    Pixels, TestAppContext, VisualTestContext,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
@@ -31,6 +31,22 @@ const ELEMENTS: &[&str] = &[
     "document-context-menu",
     "kg-save-synonyms",
     "kg-cancel-synonyms",
+    "kg-concept-tree",
+    "kg-tree-back",
+    "concept-tree-heading",
+    "concept-tree-0-0-toggle",
+    "concept-tree-0-0-0-open",
+    "concept-tree-1-0-toggle",
+    "concept-tree-1-0-0-open",
+    "concept-tree-1-1-toggle",
+    "concept-tree-1-1-0-open",
+    "gitea-task-tree-0",
+    "task-tree-0-0-0-toggle",
+    "task-tree-0-0-0-0-open",
+    "task-tree-0-1-0-toggle",
+    "task-tree-0-1-0-0-open",
+    "task-tree-0-1-1-toggle",
+    "task-tree-0-1-1-0-open",
     "edit-block-0",
     "edit-block-1",
     "edit-block-2",
@@ -76,6 +92,7 @@ const COMMANDS: &[(&str, &str, &[&str])] = &[
     ),
     ("document", "Visible text editor buffer", &[]),
     ("clipboard", "Current test clipboard text", &[]),
+    ("concept_tree", "Visible concept outline and selection", &[]),
     (
         "gitea_cards",
         "Visible Gitea issue cards and refresh state",
@@ -195,7 +212,8 @@ impl Driver {
 
     fn key(&mut self, key: &str) -> Result<()> {
         let keystroke = Keystroke::parse(key).map_err(|error| anyhow!("{error}"))?;
-        self.cx.dispatch_keystroke(self.window, keystroke);
+        self.cx.dispatch_keystroke(self.window, keystroke.clone());
+        self.cx.simulate_event(KeyUpEvent { keystroke });
         Ok(())
     }
 
@@ -250,6 +268,9 @@ impl Driver {
                     "size": [f32::from(size.width), f32::from(size.height)]
                 }])
             })),
+            "concept_tree" => Ok(self
+                .cx
+                .update(|_, cx| self.view.read(cx).headless_concept_tree())),
             "gitea_cards" => Ok(self
                 .cx
                 .update(|_, cx| self.view.read(cx).headless_gitea_cards())),

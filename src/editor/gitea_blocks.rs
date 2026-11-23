@@ -1,5 +1,5 @@
-use super::{document, TerraphimEditor};
-use crate::gitea_tasks::{CreateUncertain, GiteaTasks, IssueRef, IssueSnapshot};
+use super::{document, tree_view, TerraphimEditor};
+use crate::gitea_tasks::{CreateUncertain, GiteaTasks, IssueRef, IssueSnapshot, TaskTree};
 use futures::{stream, StreamExt};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -30,6 +30,16 @@ pub(super) struct TaskBlocks {
 struct IssueCard {
     snapshot: Option<IssueSnapshot>,
     error: Option<String>,
+    tree: TaskOutline,
+}
+
+#[derive(Default)]
+struct TaskOutline {
+    open: bool,
+    pending: bool,
+    snapshot: Option<TaskTree>,
+    error: Option<String>,
+    expanded: HashSet<String>,
 }
 
 struct IssueDraft {
@@ -127,6 +137,46 @@ impl TerraphimEditor {
                     break;
                 }
             }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn toggle_task_tree(&mut self, issue: IssueRef, cx: &mut Context<Self>) {
+        let tree = &mut self.gitea.issues.entry(issue.clone()).or_default().tree;
+        tree.open = !tree.open;
+        if tree.open {
+            self.fetch_task_tree(issue, cx);
+        }
+        cx.notify();
+    }
+
+    fn fetch_task_tree(&mut self, issue: IssueRef, cx: &mut Context<Self>) {
+        let tree = &mut self.gitea.issues.entry(issue.clone()).or_default().tree;
+        if tree.pending || !tree.open {
+            return;
+        }
+        tree.pending = true;
+        let provider = self.gitea.provider.clone();
+        let reference = issue.clone();
+        let result = cx
+            .background_executor()
+            .spawn(async move { provider.tree(&reference) });
+        cx.spawn(async move |editor, cx| {
+            let result = result.await;
+            let _ = editor.update(cx, |editor, cx| {
+                let tree = &mut editor.gitea.issues.entry(issue).or_default().tree;
+                tree.pending = false;
+                match result {
+                    Ok(response) => {
+                        tree.snapshot = Some(response);
+                        tree.expanded.clear();
+                        tree.error = None;
+                    }
+                    Err(error) => tree.error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
         })
         .detach();
         cx.notify();
@@ -389,7 +439,7 @@ impl TerraphimEditor {
             return (
                 content
                     .when(!standalone, |content| content.child(text))
-                    .child(self.render_issue_card(issue, index, cx)),
+                    .child(self.render_issue_card(&issue, index, cx)),
                 None,
             );
         }
@@ -441,6 +491,10 @@ impl TerraphimEditor {
                     "labels": snapshot.map(|value| &value.labels),
                     "assignees": snapshot.map(|value| &value.assignees),
                     "stale": snapshot.map(|value| value.stale),
+                    "tree_open": card.is_some_and(|card| card.tree.open),
+                    "tree_pending": card.is_some_and(|card| card.tree.pending),
+                    "tree_error": card.and_then(|card| card.tree.error.as_ref()),
+                    "tree_groups": card.filter(|card| card.tree.open).and_then(|card| card.tree.snapshot.as_ref()).map(|snap| &snap.groups),
                 }))
             })
             .collect();
@@ -449,18 +503,15 @@ impl TerraphimEditor {
 
     fn render_issue_card(
         &self,
-        issue: IssueRef,
+        issue: &IssueRef,
         index: usize,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let card = self.gitea.issues.get(&issue);
+        let card = self.gitea.issues.get(issue);
         let snapshot = card.and_then(|card| card.snapshot.as_ref());
-        let pending = self.gitea.pending.contains(&issue);
-        let expanded = self.gitea.expanded.contains(&issue);
-        let url = issue.url(self.gitea.provider.origin());
+        let expanded = self.gitea.expanded.contains(issue);
         let label: SharedString =
             format!("{}/{} #{}", issue.owner, issue.repo, issue.number).into();
-        let refresh = issue.clone();
         div()
             .id(("gitea-card", index))
             .debug_selector(|| format!("gitea-card-{index}"))
@@ -507,49 +558,136 @@ impl TerraphimEditor {
                 };
                 card.child(div().text_xs().child(message))
             })
+            .child(self.render_issue_actions(issue, index, card, cx))
+            .when_some(card.filter(|card| card.tree.open), |element, card| {
+                element.child(Self::render_task_tree(issue, index, &card.tree, cx))
+            })
+    }
+
+    fn render_issue_actions(
+        &self,
+        issue: &IssueRef,
+        index: usize,
+        card: Option<&IssueCard>,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let has_snapshot = card.is_some_and(|card| card.snapshot.is_some());
+        let pending = self.gitea.pending.contains(issue);
+        let expanded = self.gitea.expanded.contains(issue);
+        let url = issue.url(self.gitea.provider.origin());
+        let issue = issue.clone();
+        let refresh = issue.clone();
+        let tree_issue = issue.clone();
+        let tree_open = card.is_some_and(|card| card.tree.open);
+        div()
+            .flex()
+            .gap_2()
+            .when(has_snapshot, |row| {
+                row.child(
+                    Button::new(("gitea-details", index))
+                        .debug_selector(|| format!("gitea-details-{index}"))
+                        .small()
+                        .ghost()
+                        .label(if expanded {
+                            "Hide details"
+                        } else {
+                            "Show details"
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.gitea.expanded.remove(&issue) {
+                                this.gitea.expanded.insert(issue.clone());
+                            }
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .when(snapshot.is_some(), |row| {
-                        row.child(
-                            Button::new(("gitea-details", index))
-                                .debug_selector(|| format!("gitea-details-{index}"))
-                                .small()
-                                .ghost()
-                                .label(if expanded {
-                                    "Hide details"
-                                } else {
-                                    "Show details"
-                                })
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if !this.gitea.expanded.remove(&issue) {
-                                        this.gitea.expanded.insert(issue.clone());
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                    })
-                    .child(
-                        Button::new(("gitea-refresh", index))
-                            .debug_selector(|| format!("gitea-refresh-{index}"))
-                            .small()
-                            .ghost()
-                            .disabled(pending)
-                            .label(if pending { "Refreshing…" } else { "Refresh" })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.fetch_issues(vec![refresh.clone()], cx);
-                            })),
-                    )
-                    .child(
-                        Button::new(("gitea-open", index))
-                            .debug_selector(|| format!("gitea-open-{index}"))
-                            .small()
-                            .ghost()
-                            .label("Open in Gitea")
-                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
-                    ),
+                Button::new(("gitea-refresh", index))
+                    .debug_selector(|| format!("gitea-refresh-{index}"))
+                    .small()
+                    .ghost()
+                    .disabled(pending)
+                    .label(if pending { "Refreshing…" } else { "Refresh" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.fetch_issues(vec![refresh.clone()], cx);
+                        this.fetch_task_tree(refresh.clone(), cx);
+                    })),
             )
+            .child(
+                Button::new(("gitea-task-tree", index))
+                    .debug_selector(|| format!("gitea-task-tree-{index}"))
+                    .small()
+                    .ghost()
+                    .label(if tree_open {
+                        "Hide task tree"
+                    } else {
+                        "Task tree"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_task_tree(tree_issue.clone(), cx);
+                    })),
+            )
+            .child(
+                Button::new(("gitea-open", index))
+                    .debug_selector(|| format!("gitea-open-{index}"))
+                    .small()
+                    .ghost()
+                    .label("Open in Gitea")
+                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
+            )
+    }
+
+    fn render_task_tree(
+        issue: &IssueRef,
+        index: usize,
+        tree: &TaskOutline,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let for_toggle = issue.clone();
+        let for_open = issue.clone();
+        let message = if tree.pending {
+            "Loading task tree…".to_owned()
+        } else if let Some(error) = &tree.error {
+            format!("Task tree unavailable · {error}")
+        } else if tree
+            .snapshot
+            .as_ref()
+            .is_some_and(|snap| snap.groups.is_empty())
+        {
+            "No links in the returned snapshot. Coverage is unverified.".to_owned()
+        } else if tree.snapshot.as_ref().is_some_and(|snap| snap.cached) {
+            "Cached Gitea snapshot · same repository only · coverage unverified".to_owned()
+        } else {
+            "Gitea snapshot · same repository only · coverage unverified".to_owned()
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_xs().child(message))
+            .when_some(tree.snapshot.as_ref(), |element, snapshot| {
+                element.child(tree_view::render(
+                    &format!("task-tree-{index}"),
+                    &snapshot.groups,
+                    &tree.expanded,
+                    move |editor, path, cx| {
+                        if let Some(card) = editor.gitea.issues.get_mut(&for_toggle) {
+                            tree_view::toggle(&mut card.tree.expanded, path);
+                            cx.notify();
+                        }
+                    },
+                    move |editor, id, cx| {
+                        if let Ok(number) = id.parse() {
+                            let selected = IssueRef {
+                                number,
+                                ..for_open.clone()
+                            };
+                            cx.open_url(&editor.gitea.issue_url(&selected));
+                        }
+                    },
+                    cx,
+                ))
+            })
     }
 }
 

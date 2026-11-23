@@ -360,8 +360,9 @@ impl PreparedEditor {
 /// Register global keybindings
 fn register_keybindings(cx: &mut App) {
     use terraphim_gpui_editor::editor::{
-        Cancel, CommitBlockDraft, EditAlternatives, NextSynonym, PreviousSynonym,
-        ReopenCompletions, RotateCompletionBackward, RotateCompletionForward, ToggleBlocksView,
+        Cancel, CommitBlockDraft, EditAlternatives, FocusNextControl, FocusPreviousControl,
+        NextSynonym, PreviousSynonym, ReopenCompletions, RotateCompletionBackward,
+        RotateCompletionForward, ToggleBlocksView,
     };
 
     cx.bind_keys([
@@ -383,6 +384,24 @@ fn register_keybindings(cx: &mut App) {
         // Completion navigation (these may be overridden by Input)
         KeyBinding::new("tab", RotateCompletionForward, None),
         KeyBinding::new("shift-tab", RotateCompletionBackward, None),
+        KeyBinding::new("tab", FocusNextControl, Some("TerraphimBlocks")),
+        KeyBinding::new("shift-tab", FocusPreviousControl, Some("TerraphimBlocks")),
+        KeyBinding::new("tab", FocusNextControl, Some("TerraphimKgAlternatives")),
+        KeyBinding::new(
+            "shift-tab",
+            FocusPreviousControl,
+            Some("TerraphimKgAlternatives"),
+        ),
+        KeyBinding::new(
+            "tab",
+            FocusNextControl,
+            Some("TerraphimKgAlternatives > Input"),
+        ),
+        KeyBinding::new(
+            "shift-tab",
+            FocusPreviousControl,
+            Some("TerraphimKgAlternatives > Input"),
+        ),
         // Cancel/escape
         KeyBinding::new("escape", Cancel, None),
     ]);

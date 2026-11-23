@@ -11,6 +11,7 @@ pub mod editor;
 pub mod slash_command;
 
 mod blocks;
+mod dependency_tree;
 mod document;
 mod gitea_tasks;
 mod indicators;

@@ -34,6 +34,7 @@ use terraphim_markdown_parser::NormalizedMarkdown;
 mod context_menu;
 mod gitea_blocks;
 mod kg_alternatives;
+mod tree_view;
 
 // Actions for the editor
 actions!(
@@ -48,6 +49,8 @@ actions!(
         PreviousSynonym,
         ToggleBlocksView,
         CommitBlockDraft,
+        FocusNextControl,
+        FocusPreviousControl,
         Cancel,
     ]
 );
@@ -1162,8 +1165,7 @@ impl TerraphimEditor {
         let theme = cx.theme();
         let cards = crate::blocks::parse(&self.document.body);
         let draft = self.block_draft.as_ref();
-        div()
-            .id("blocks-view")
+        tree_view::keyboard_navigation(div().id("blocks-view"), "TerraphimBlocks")
             .track_focus(&self.blocks_focus)
             .flex_1()
             .h_full()

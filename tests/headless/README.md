@@ -34,3 +34,25 @@ The loaded-role check starts the editor with a JSON thesaurus through
 `--thesaurus`. It types `cop`, accepts `copper alloy` with Enter or Tab,
 and verifies that Alt+Down cycles the highlighted term to `bronze`.
 Alt+Up restores the original term and the original active dot.
+
+
+### Task and concept TreeViews
+
+Run against an explicitly configured disposable loopback Gitea fork, using
+the `editor-test/blocks-demo` fixture repository. The fixture directory's
+`issues.json` maps `root`, `child`, `grandchild`, `left`, `right`, `shared`,
+and `downstream` to issue numbers. Create child → root and grandchild → child
+as `parent-child`, root → left as `blocks`, root → right as
+`conditional-blocks`, left/right → shared as `blocks`, and downstream → root
+as `waits-for`. Relation direction here is the Gitea API's stored orientation.
+The test reads these real issues and edges.
+
+Include a `kg/` fixture directory with `# Coordination` (alias
+`coordination alias`), nested `# Task routing` and `# Dispatch`, and two
+declared dependency paths to `# Shared prerequisite`. The test copies the
+role before opening it in the editor.
+
+```sh
+python3 tests/headless/dependency_tree_gdp.py \
+  target/debug/terraphim-gpui-editor /absolute/path/to/fixture
+```
