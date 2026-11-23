@@ -16,6 +16,8 @@ use terraphim_lsp_core::KgEngine;
 use terraphim_types::{DocumentType, NormalizedTerm, NormalizedTermValue, Thesaurus};
 use url::Url;
 
+mod hierarchy;
+
 const SYNONYMS_PREFIX: &str = "synonyms::";
 
 /// A compiled role and the exact source snapshot used to build it.
@@ -316,7 +318,7 @@ fn compile(
     Ok((thesaurus, concepts))
 }
 
-fn protected_ranges(source: &str) -> Vec<Range<usize>> {
+fn protected_ranges(document: &markdown::mdast::Node) -> Vec<Range<usize>> {
     use markdown::mdast::Node;
 
     fn collect(node: &Node, ranges: &mut Vec<Range<usize>>) {
@@ -332,14 +334,20 @@ fn protected_ranges(source: &str) -> Vec<Range<usize>> {
     }
 
     let mut ranges = Vec::new();
-    if let Ok(document) = markdown::to_mdast(source, &markdown::ParseOptions::gfm()) {
-        collect(&document, &mut ranges);
-    }
+    collect(document, &mut ranges);
     ranges
 }
 
 fn lines(source: &str) -> impl Iterator<Item = (&str, bool)> {
-    let protected = protected_ranges(source);
+    let protected = markdown::to_mdast(source, &markdown::ParseOptions::gfm())
+        .map_or_else(|_| Vec::new(), |document| protected_ranges(&document));
+    lines_with_ranges(source, protected)
+}
+
+fn lines_with_ranges(
+    source: &str,
+    protected: Vec<Range<usize>>,
+) -> impl Iterator<Item = (&str, bool)> {
     let mut offset = 0;
     source.split_inclusive('\n').map(move |line| {
         let start = offset + line.len() - line.trim_start().len();

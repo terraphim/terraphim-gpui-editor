@@ -1,6 +1,7 @@
 //! Local JSON requests for the same Markdown role editor used by GPUI.
 
 use super::{RoleSource, Source};
+use crate::dependency_tree::TreeGroup;
 use crate::{document, SlashCommandRegistry, TerraphimCompletionProvider};
 use anyhow::{ensure, Context as _, Result};
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,10 @@ use terraphim_lsp_core::KgEngine;
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Request {
     Load,
+    ConceptTree {
+        concept_id: String,
+        revision: Option<String>,
+    },
     Complete {
         text: String,
         offset: usize,
@@ -36,6 +41,9 @@ enum Request {
 #[serde(untagged)]
 enum Response {
     Snapshot(Snapshot),
+    Tree {
+        groups: Vec<TreeGroup>,
+    },
     Completion {
         revision: String,
         items: Vec<Completion>,
@@ -94,6 +102,14 @@ fn execute(root: &Path, payload: &[u8]) -> Result<Response> {
     let revision = source.revision();
     match request {
         Request::Load => {}
+        Request::ConceptTree {
+            concept_id,
+            revision: expected,
+        } => {
+            check_revision(expected.as_deref(), &revision)?;
+            let groups = source.concept_tree(concept_id.parse()?)?;
+            return Ok(Response::Tree { groups });
+        }
         Request::Save {
             revision: expected,
             concept_id,
@@ -193,6 +209,71 @@ mod tests {
 
     fn request(root: &std::path::Path, value: &serde_json::Value) -> serde_json::Value {
         markdown_kg_request(root, value.to_string().as_bytes())
+    }
+
+    #[test]
+    fn concept_tree_resolves_canonical_headings_and_cuts_cycles() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let alpha = "---\ndepends_on:: Hidden\n---\n\n# Alpha\n\nsynonyms:: first alias\n\ndepends_on::   bETA\ndepends_on:: Absent\ndepends_on:: Duplicate\ndepends_on:: beta alias\n\n```text\ndepends_on:: Hidden\n```\n";
+        for (name, text) in [
+            ("alpha.md", alpha),
+            (
+                "different filename.md",
+                "# Beta\n\nsynonyms:: beta alias\ndepends_on:: Alpha\n",
+            ),
+            ("hidden.md", "# Hidden\n"),
+            ("duplicate-one.md", "# Duplicate\n"),
+            ("duplicate-two.md", "# Duplicate\n"),
+        ] {
+            fs::write(root.join(name), text).unwrap();
+        }
+
+        let role = request(root, &json!({"op":"load"}));
+        let entries = role["result"]["entries"].as_array().unwrap();
+        let id = entries
+            .iter()
+            .find(|entry| entry["term"] == "first alias")
+            .unwrap()["concept_id"]
+            .clone();
+        let tree = request(root, &json!({"op":"concept_tree", "concept_id": id}));
+        assert_eq!(tree["ok"], true, "{tree}");
+        let depends_on = &tree["result"]["groups"][0];
+        assert_eq!(depends_on["label"], "Depends on");
+        let nodes = depends_on["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0]["label"], "Beta");
+        let cycle = &nodes[0]["children"][0];
+        assert_eq!(cycle["id"], id);
+        assert_eq!(cycle["cycle"], true);
+        assert_eq!(cycle["children"], json!([]));
+        assert_eq!(fs::read_to_string(root.join("alpha.md")).unwrap(), alpha);
+    }
+
+    #[test]
+    fn concept_tree_bounds_the_role_outline() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("root concept.md"), "# Root concept\n").unwrap();
+        for n in 0..140 {
+            let name = format!("Child concept {n}");
+            fs::write(
+                root.join(format!("{name}.md")),
+                format!("# {name}\n\nparent:: Root concept\n"),
+            )
+            .unwrap();
+        }
+        let response = request(root, &json!({"op":"load"}));
+        let entries = response["result"]["entries"].as_array().unwrap();
+        let id = &entries
+            .iter()
+            .find(|entry| entry["term"] == "root concept")
+            .unwrap()["concept_id"];
+        let tree = request(root, &json!({"op":"concept_tree", "concept_id":id}));
+        let group = &tree["result"]["groups"][0];
+        assert_eq!(group["label"], "Subconcepts");
+        assert_eq!(group["truncated"], true);
+        assert_eq!(group["nodes"].as_array().unwrap().len(), 128);
     }
 
     #[test]

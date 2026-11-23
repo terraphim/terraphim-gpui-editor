@@ -1,5 +1,6 @@
 //! File-backed knowledge graph concepts for editable editor roles.
 
+use crate::dependency_tree::TreeGroup;
 use anyhow::{bail, ensure, Context as _, Result};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -83,6 +84,13 @@ impl RoleSource {
         match &self.0 {
             Source::Json(source) => Ok(source.path()),
             Source::Markdown(source) => source.record_path(id),
+        }
+    }
+
+    pub(crate) fn concept_tree(&self, concept_id: u64) -> Result<Vec<TreeGroup>> {
+        match &self.0 {
+            Source::Markdown(source) => source.concept_tree(concept_id),
+            Source::Json(_) => bail!("Load a Markdown role to inspect concept relationships"),
         }
     }
 

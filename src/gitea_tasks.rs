@@ -15,6 +15,9 @@ use std::{
 };
 use url::Url;
 
+mod tree;
+pub(crate) use tree::TaskTree;
+
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(35);
 const MAX_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
 

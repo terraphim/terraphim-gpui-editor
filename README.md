@@ -11,6 +11,10 @@ configuration.
 - Paste a Gitea issue URL into Markdown and open Blocks to see its card. Use
   **Show details** to read the description or **Open in Gitea** to see the full
   issue.
+- **Task tree** shows the selected issue's **Subtasks**, **Depends on** and
+  **Unblocks** from `gtr graph`. Expand rows to follow a path, or open an issue
+  in Gitea. Nested subtasks come from declared `parent-child` edges. A shared
+  prerequisite can appear on multiple paths with the same issue link.
 - Cards refresh when you open Blocks, open a document in Blocks, or return
   focus to the window. Use **Refresh** to check one issue immediately. A cached
   result shows when it was last fetched.
@@ -23,7 +27,8 @@ configuration.
 
 The headless acceptance test in `tests/headless/gitea_blocks_gdp.py` checks the
 workflow against a disposable loopback Gitea instance with a private fixture
-repository and an open fixture issue.
+repository and an open fixture issue. The task tree shows repository-local
+coverage. Graph responses can omit edges. Use Gitea for authoritative readiness.
 
 ## Edit knowledge graph alternatives
 
@@ -44,12 +49,21 @@ separate from the open document and its undo history. If another process
 changes the source, reload the editor before trying again. Selections
 outside the graph can have document-specific alternatives.
 
+Choose **Concept tree** in the alternatives panel for a matched Markdown
+concept. A role record may declare one canonical level-one heading per
+`parent::` or `depends_on::` line. Repeat a directive for multiple relations.
+For example, a record headed `# Dispatch` can contain `parent:: Task routing`
+and `depends_on:: Runner availability`. Open a row to focus the same concept
+from either path. Tab and Shift+Tab move between controls. Enter or Space
+activates a focused control. Expanding a tree leaves the note and role files
+unchanged.
+
 ### Use the same Markdown role from NSH and the CLI
 
 Launch the NSH desktop prototype from a shell with this editor binary on
 `PATH` and `TERRAPHIM_KG_DIR` set to the absolute path of the role directory.
 NSH uses the editor's local request interface to read and save synonyms,
-complete terms, and cycle synonyms using the same Rust code as GPUI.
+complete terms, cycle synonyms and read concept trees using the same Rust code as GPUI.
 
 To make a current Grep thesaurus from the source role:
 
