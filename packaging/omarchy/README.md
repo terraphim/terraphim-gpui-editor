@@ -58,3 +58,24 @@ v0.1.0-rc.3 uses the earlier directory bundle format.
 - [OMA sandbox baseline](https://github.com/csfh/odk/blob/ba50c0db12e87676029b57e21dd61ff4e6bee0fc/docs/spec/sandbox-baseline.md)
 - [ODK host settings protocol](https://github.com/csfh/odk/blob/ba50c0db12e87676029b57e21dd61ff4e6bee0fc/docs/adr/0062-odkd-tells-every-application-what-the-host-says.md)
 - [ODK design language](https://github.com/csfh/odk/blob/ba50c0db12e87676029b57e21dd61ff4e6bee0fc/docs/design-language.md)
+
+## Publisher signing in GitHub Actions
+
+Run **Sign Omarchy bundle** from the default branch with a positive release
+number greater than the last published release. The workflow builds the
+source of this repository at the dispatched revision and builds the single-file
+OMA bundler at the pinned upstream revision. It uploads the signed bundle
+and its SHA-256 checksum.
+
+Configure the `omarchy-signing` environment with
+`OMA_RELEASE_SEED_BASE64` as a secret containing the base64-encoded 32-byte
+release signing seed. Set `OMA_PUBLISHER` to the publisher hostname,
+`OMA_ROOT_KEY_ID` to the 16-character lowercase hex root key identifier,
+and `OMA_UPDATE_URL` to the final HTTPS bundle URL on the publisher hostname.
+
+Keep the root signing key offline. Serve the root-signed release key directory
+at `/.well-known/oma-keys` and `/.well-known/oma-keys.sig` on that hostname.
+After downloading the artifact, publish the bundle at the configured URL and
+verify installation and launch on the intended Omarchy runtime. The pinned
+publisher bundler produces a different bundle format from the earlier rc.3
+release.

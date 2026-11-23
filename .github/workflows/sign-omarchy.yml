@@ -1,0 +1,57 @@
+name: Sign Omarchy bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_number:
+        description: Monotonic publisher release number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    environment: omarchy-signing
+    timeout-minutes: 60
+    steps:
+      - name: Install Arch build dependencies
+        run: pacman -Syu --noconfirm --needed git rustup clang pkgconf fontconfig freetype2 wayland libxcb libxkbcommon libxkbcommon-x11 vulkan-headers vulkan-icd-loader openssl file
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: csfh/odk
+          ref: ba50c0db12e87676029b57e21dd61ff4e6bee0fc
+          path: upstream-odk
+          persist-credentials: false
+      - name: Build editor and pinned OMA bundler
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup default stable
+          sh packaging/omarchy/build.sh
+          cargo build --manifest-path upstream-odk/Cargo.toml --locked --release -p oma --bin odk-oma
+      - name: Sign OMA artifact
+        shell: bash
+        env:
+          OMA_RELEASE_SEED_BASE64: ${{ secrets.OMA_RELEASE_SEED_BASE64 }}
+          OMA_PUBLISHER: ${{ vars.OMA_PUBLISHER }}
+          OMA_ROOT_KEY_ID: ${{ vars.OMA_ROOT_KEY_ID }}
+          OMA_UPDATE_URL: ${{ vars.OMA_UPDATE_URL }}
+          OMA_RELEASE_NUMBER: ${{ inputs.release_number }}
+        run: |
+          bash packaging/omarchy/sign.sh \
+            upstream-odk/target/release/odk-oma \
+            target/x86_64-unknown-linux-gnu/release/terraphim-gpui-editor \
+            signed-oma
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: terraphim-editor-omarchy-signed
+          path: signed-oma/
+          if-no-files-found: error
