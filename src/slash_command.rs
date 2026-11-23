@@ -57,6 +57,7 @@ impl CommandOutput {
     }
 
     /// Create output that runs an editor action
+    #[must_use]
     pub fn action(action: EditorAction) -> Self {
         Self {
             insert_text: Some(String::new()),
@@ -67,6 +68,7 @@ impl CommandOutput {
     }
 
     /// Create empty output (no-op)
+    #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
@@ -131,6 +133,7 @@ pub struct SlashCommandRegistry {
 
 impl SlashCommandRegistry {
     /// Create a new empty registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             commands: HashMap::new(),
@@ -156,6 +159,7 @@ impl SlashCommandRegistry {
     }
 
     /// Get a command by name
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<Arc<dyn SlashCommand>> {
         self.commands.get(name).cloned()
     }
@@ -168,6 +172,7 @@ impl SlashCommandRegistry {
     /// Filter commands by prefix
     ///
     /// Returns all commands whose names start with the given prefix.
+    #[must_use]
     pub fn filter(&self, prefix: &str) -> Vec<Arc<dyn SlashCommand>> {
         let prefix_lower = prefix.to_lowercase();
         let indexed = self.commands_from_index(&prefix_lower);
@@ -182,17 +187,37 @@ impl SlashCommandRegistry {
             .collect()
     }
 
+    // Recognize a duplicated leading fragment only when it leaves an exact command.
+    pub(crate) fn complete_duplicated_prefix(&self, query: &str) -> Option<Arc<dyn SlashCommand>> {
+        if !query.is_ascii() || self.commands.contains_key(query) {
+            return None;
+        }
+        let mut exact = (1..=query.len() / 2).filter_map(|length| {
+            let (prefix, name) = query.split_at(length);
+            name.starts_with(prefix).then(|| self.get(name)).flatten()
+        });
+        let matched = exact.next()?;
+        exact.next().is_none().then_some(matched)
+    }
+
     /// Get the number of registered commands
+    #[must_use]
     pub fn len(&self) -> usize {
         self.commands.len()
     }
 
     /// Check if the registry is empty
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
 
-    /// Create a registry with default built-in commands
+    /// Create a registry with built-in commands and optional Markdown definitions.
+    ///
+    /// Set `TERRAPHIM_COMMANDS_DIR` to select a directory explicitly. Otherwise,
+    /// look for the command pack in the sibling `terraphim-agents` checkout,
+    /// then in the legacy `terraphim-ai` checkout.
+    #[must_use]
     pub fn with_defaults() -> Self {
         use crate::commands::{
             BlocksCommand, CodeCommand, HeadingCommand, HelpCommand, IdsCommand, ListCommand,
@@ -211,7 +236,13 @@ impl SlashCommandRegistry {
         registry.register(OpenCommand);
         registry.register(SaveCommand);
 
-        registry.register_markdown_commands();
+        let configured_dir = std::env::var("TERRAPHIM_COMMANDS_DIR").ok();
+        if let Some(dir) = resolve_commands_dir(
+            Path::new(env!("CARGO_MANIFEST_DIR")),
+            configured_dir.as_deref(),
+        ) {
+            registry.register_markdown_commands(&dir);
+        }
 
         // Clone registry for HelpCommand
         let registry_clone = registry.clone();
@@ -252,7 +283,7 @@ impl SlashCommandRegistry {
                 self.command_index_terms = term_to_commands;
             }
             Err(err) => {
-                log::warn!("Failed to build command autocomplete index: {}", err);
+                log::warn!("Failed to build command autocomplete index: {err}");
                 self.command_index = None;
                 self.command_index_terms.clear();
             }
@@ -290,13 +321,8 @@ impl SlashCommandRegistry {
         commands
     }
 
-    fn register_markdown_commands(&mut self) {
-        let definitions = load_markdown_command_definitions();
-        if definitions.is_empty() {
-            return;
-        }
-
-        for definition in definitions {
+    pub(crate) fn register_markdown_commands(&mut self, commands_dir: &Path) {
+        for definition in load_markdown_command_definitions(commands_dir) {
             let primary = MarkdownCommand::from_definition(&definition, &definition.name);
             if !self.commands.contains_key(primary.name()) {
                 self.register(primary);
@@ -332,8 +358,7 @@ impl MarkdownCommandFrontmatter {
         }
         self.usage
             .as_deref()
-            .map(|usage| usage.contains('<') || usage.contains('['))
-            .unwrap_or(false)
+            .is_some_and(|usage| usage.contains('<') || usage.contains('['))
     }
 
     fn requires_args(&self) -> bool {
@@ -343,7 +368,8 @@ impl MarkdownCommandFrontmatter {
 
 #[derive(Debug, Deserialize)]
 struct MarkdownCommandParameter {
-    name: String,
+    #[serde(rename = "name")]
+    _name: String,
     #[serde(default)]
     required: bool,
 }
@@ -362,13 +388,12 @@ impl MarkdownCommand {
         let description = definition
             .description
             .clone()
-            .unwrap_or_else(|| format!("Run {} command", name));
-        let usage = definition
-            .usage
-            .as_deref()
-            .map(|usage| rewrite_usage(usage, &definition.name, name))
-            .unwrap_or_else(|| name.to_string());
-        let help_text = format!("Usage: /{}\n\n{}", usage, description);
+            .unwrap_or_else(|| format!("Run {name} command"));
+        let usage = definition.usage.as_deref().map_or_else(
+            || name.to_string(),
+            |usage| rewrite_usage(usage, &definition.name, name),
+        );
+        let help_text = format!("Usage: /{usage}\n\n{description}");
 
         Self {
             name: name.to_string(),
@@ -413,12 +438,8 @@ impl SlashCommand for MarkdownCommand {
     }
 }
 
-fn load_markdown_command_definitions() -> Vec<MarkdownCommandFrontmatter> {
-    let Some(commands_dir) = resolve_commands_dir() else {
-        return Vec::new();
-    };
-
-    if !commands_dir.exists() {
+fn load_markdown_command_definitions(commands_dir: &Path) -> Vec<MarkdownCommandFrontmatter> {
+    if !commands_dir.is_dir() {
         log::warn!(
             "Markdown command directory not found: {}",
             commands_dir.display()
@@ -427,7 +448,7 @@ fn load_markdown_command_definitions() -> Vec<MarkdownCommandFrontmatter> {
     }
 
     let mut files = Vec::new();
-    if let Err(err) = collect_markdown_files(&commands_dir, &mut files) {
+    if let Err(err) = collect_markdown_files(commands_dir, &mut files) {
         log::warn!(
             "Failed to enumerate markdown commands in {}: {}",
             commands_dir.display(),
@@ -441,7 +462,11 @@ fn load_markdown_command_definitions() -> Vec<MarkdownCommandFrontmatter> {
         let content = match std::fs::read_to_string(&path) {
             Ok(content) => content,
             Err(err) => {
-                log::warn!("Failed to read markdown command {}: {}", path.display(), err);
+                log::warn!(
+                    "Failed to read markdown command {}: {}",
+                    path.display(),
+                    err
+                );
                 continue;
             }
         };
@@ -465,18 +490,20 @@ fn load_markdown_command_definitions() -> Vec<MarkdownCommandFrontmatter> {
     definitions
 }
 
-fn resolve_commands_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("TERRAPHIM_COMMANDS_DIR") {
-        if !dir.trim().is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+fn resolve_commands_dir(crate_dir: &Path, configured_dir: Option<&str>) -> Option<PathBuf> {
+    if let Some(dir) = configured_dir.filter(|dir| !dir.trim().is_empty()) {
+        return Some(PathBuf::from(dir));
     }
 
-    let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    Some(
-        crate_dir
-            .join("../terraphim-ai/crates/terraphim_agent/commands"),
-    )
+    ["terraphim-agents", "terraphim-ai"]
+        .into_iter()
+        .map(|repo| {
+            crate_dir
+                .join("..")
+                .join(repo)
+                .join("crates/terraphim_agent/commands")
+        })
+        .find(|dir| dir.is_dir())
 }
 
 fn collect_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -517,7 +544,7 @@ fn extract_frontmatter(contents: &str) -> Option<String> {
 
 fn rewrite_usage(usage: &str, primary: &str, alias: &str) -> String {
     if let Some(rest) = usage.strip_prefix(primary) {
-        format!("{}{}", alias, rest)
+        format!("{alias}{rest}")
     } else {
         usage.to_string()
     }
@@ -579,6 +606,60 @@ mod tests {
         fn execute(&self, _args: &[String], _window: &mut Window, _cx: &mut App) -> CommandOutput {
             CommandOutput::insert(format!("Executed: {}", self.name))
         }
+    }
+
+    #[test]
+    fn discovers_command_pack_in_precedence_order() {
+        let workspace = tempfile::tempdir().unwrap();
+        let crate_dir = workspace.path().join("terraphim-gpui-editor");
+        std::fs::create_dir(&crate_dir).unwrap();
+        let legacy = crate_dir.join("../terraphim-ai/crates/terraphim_agent/commands");
+        let extracted = crate_dir.join("../terraphim-agents/crates/terraphim_agent/commands");
+        let explicit = workspace.path().join("custom");
+
+        assert_eq!(resolve_commands_dir(&crate_dir, None), None);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(extracted.parent().unwrap()).unwrap();
+        std::fs::write(&extracted, "").unwrap();
+        assert_eq!(resolve_commands_dir(&crate_dir, None), Some(legacy));
+
+        std::fs::remove_file(&extracted).unwrap();
+        std::fs::create_dir(&extracted).unwrap();
+        assert_eq!(resolve_commands_dir(&crate_dir, Some(" ")), Some(extracted));
+        assert_eq!(
+            resolve_commands_dir(&crate_dir, explicit.to_str()),
+            Some(explicit)
+        );
+    }
+
+    #[test]
+    fn registers_markdown_commands_and_aliases_from_discovered_pack() {
+        let workspace = tempfile::tempdir().unwrap();
+        let crate_dir = workspace.path().join("terraphim-gpui-editor");
+        std::fs::create_dir(&crate_dir).unwrap();
+        let pack = crate_dir.join("../terraphim-agents/crates/terraphim_agent/commands");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("hello.md"),
+            "---\nname: hello-world\nusage: hello-world <name>\naliases: [hi, code]\nparameters:\n  - name: name\n    required: true\n---\n# Example\n",
+        )
+        .unwrap();
+
+        let mut registry = SlashCommandRegistry::new();
+        registry.register(crate::commands::CodeCommand);
+        let dir = resolve_commands_dir(&crate_dir, None).unwrap();
+        registry.register_markdown_commands(&dir);
+
+        let primary = registry.get("hello-world").unwrap();
+        let alias = registry.get("hi").unwrap();
+        assert!(primary.requires_argument());
+        assert!(alias.accepts_arguments());
+        assert!(alias.help().contains("hi <name>"));
+        assert_eq!(registry.filter("hi")[0].name(), "hi");
+        assert_eq!(
+            registry.get("code").unwrap().description(),
+            crate::commands::CodeCommand.description()
+        );
     }
 
     #[test]

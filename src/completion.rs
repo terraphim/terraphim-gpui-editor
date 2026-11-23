@@ -1,4 +1,4 @@
-//! Completion provider integrating terraphim_automata and slash commands
+//! Completion provider integrating `terraphim_automata` and slash commands
 //!
 //! This module implements the `CompletionProvider` trait from gpui-component,
 //! providing FST-based autocomplete from thesaurus data and slash command completion.
@@ -7,8 +7,8 @@ use crate::slash_command::SlashCommandRegistry;
 use anyhow::Result;
 use gpui::{Context, Task, Window};
 use lsp_types::{
-    CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, Documentation,
-    InsertTextFormat, MarkupContent, MarkupKind,
+    CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
+    Documentation, InsertTextFormat, MarkupContent, MarkupKind, TextEdit,
 };
 use std::sync::Arc;
 use terraphim_automata::autocomplete::{
@@ -19,7 +19,7 @@ use terraphim_automata::autocomplete::{
 pub use gpui_component::input::CompletionProvider;
 use gpui_component::input::InputState;
 // Use the Rope type re-exported from gpui-component
-use gpui_component::Rope;
+use gpui_component::{Rope, RopeExt};
 
 /// Configuration for completion behavior
 #[derive(Debug, Clone)]
@@ -48,7 +48,7 @@ impl Default for CompletionConfig {
     }
 }
 
-/// Completion provider that integrates terraphim_automata and slash commands
+/// Completion provider that integrates `terraphim_automata` and slash commands
 ///
 /// This provider handles two types of completions:
 /// 1. Slash commands: Triggered by `/` at the start of a line
@@ -66,9 +66,10 @@ impl TerraphimCompletionProvider {
     /// Create a new completion provider
     ///
     /// # Arguments
-    /// * `index` - Pre-built autocomplete index from terraphim_automata
+    /// * `index` - Pre-built autocomplete index from `terraphim_automata`
     /// * `commands` - Registry of slash commands
     /// * `config` - Completion configuration
+    #[must_use]
     pub fn new(
         index: Arc<AutocompleteIndex>,
         commands: SlashCommandRegistry,
@@ -82,6 +83,7 @@ impl TerraphimCompletionProvider {
     }
 
     /// Create with default configuration
+    #[must_use]
     pub fn with_defaults(index: Arc<AutocompleteIndex>, commands: SlashCommandRegistry) -> Self {
         Self::new(index, commands, CompletionConfig::default())
     }
@@ -89,7 +91,7 @@ impl TerraphimCompletionProvider {
     /// Check if we're in slash command context and return the command prefix
     ///
     /// Returns `Some((slash_pos, query))` if a slash command is being typed.
-    fn parse_slash_command(&self, text: &str, offset: usize) -> Option<(usize, String)> {
+    fn parse_slash_command(text: &str, offset: usize) -> Option<(usize, String)> {
         if offset == 0 || text.is_empty() {
             return None;
         }
@@ -98,14 +100,14 @@ impl TerraphimCompletionProvider {
         let before_cursor = &text[..offset.min(text.len())];
 
         // Find the last newline before cursor
-        let line_start = before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_start = before_cursor.rfind('\n').map_or(0, |i| i + 1);
 
         // Get current line up to cursor
         let current_line = &before_cursor[line_start..];
 
         // Check if line starts with /
-        if current_line.starts_with('/') {
-            let query = &current_line[1..]; // Remove leading /
+        if let Some(query) = current_line.strip_prefix('/') {
+            // Remove leading /
             // Only match if it's just the command (no spaces or it's completing after /)
             if !query.contains(' ') || query.is_empty() {
                 return Some((line_start, query.to_string()));
@@ -123,13 +125,9 @@ impl TerraphimCompletionProvider {
 
         let before_cursor = &text[..offset.min(text.len())];
 
-        // Find word boundary
-        let word_start = before_cursor
-            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-            .map(|i| i + 1)
-            .unwrap_or(0);
-
-        let word = &before_cursor[word_start..];
+        let word = before_cursor
+            .rsplit(|character| !is_term_character(character))
+            .next()?;
 
         if word.len() >= self.config.min_prefix_length {
             Some(word.to_string())
@@ -149,7 +147,7 @@ impl TerraphimCompletionProvider {
                 let description = cmd.description();
 
                 CompletionItem {
-                    label: format!("/{}", name),
+                    label: format!("/{name}"),
                     kind: Some(CompletionItemKind::FUNCTION),
                     detail: Some(description.to_string()),
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
@@ -157,7 +155,7 @@ impl TerraphimCompletionProvider {
                         value: cmd.help().to_string(),
                     })),
                     insert_text: Some(if cmd.accepts_arguments() {
-                        format!("{} ", name)
+                        format!("{name} ")
                     } else {
                         name.to_string()
                     }),
@@ -189,10 +187,11 @@ impl TerraphimCompletionProvider {
         results
             .into_iter()
             .map(|result| {
+                let sort_score = (1_000_000.0 - result.score).max(0.0).trunc();
                 let detail = result
                     .url
                     .as_ref()
-                    .map(|u| format!("→ {}", u))
+                    .map(|u| format!("→ {u}"))
                     .or_else(|| Some(format!("ID: {}", result.id)));
 
                 CompletionItem {
@@ -206,11 +205,24 @@ impl TerraphimCompletionProvider {
                     ))),
                     insert_text: Some(result.term),
                     insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                    sort_text: Some(format!("{:010}", (1_000_000.0 - result.score) as u64)),
+                    sort_text: Some(format!("{sort_score:010.0}")),
                     ..Default::default()
                 }
             })
             .collect()
+    }
+}
+
+fn is_term_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '_' | '-')
+}
+
+fn replace_token(items: &mut [CompletionItem], text: &Rope, start: usize, end: usize) {
+    let range = lsp_types::Range::new(text.offset_to_position(start), text.offset_to_position(end));
+    for item in items {
+        if let Some(new_text) = item.insert_text.take() {
+            item.text_edit = Some(CompletionTextEdit::Edit(TextEdit { range, new_text }));
+        }
     }
 }
 
@@ -224,16 +236,30 @@ impl CompletionProvider for TerraphimCompletionProvider {
         _cx: &mut Context<InputState>,
     ) -> Task<Result<CompletionResponse>> {
         let text_str = text.to_string();
+        if !text_str.is_char_boundary(offset) {
+            return Task::ready(Ok(CompletionResponse::Array(vec![])));
+        }
 
         // Check for slash command
-        if let Some((_slash_pos, query)) = self.parse_slash_command(&text_str, offset) {
-            let items = self.complete_slash_commands(&query);
+        if let Some((slash_pos, query)) = Self::parse_slash_command(&text_str, offset) {
+            let suffix = text_str[offset..]
+                .bytes()
+                .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                .count();
+            let mut items = self.complete_slash_commands(&query);
+            replace_token(&mut items, text, slash_pos + 1, offset + suffix);
             return Task::ready(Ok(CompletionResponse::Array(items)));
         }
 
         // Check for term autocomplete
         if let Some(word) = self.get_current_word(&text_str, offset) {
-            let items = self.complete_terms(&word);
+            let suffix = text_str[offset..]
+                .chars()
+                .take_while(|&character| is_term_character(character))
+                .map(char::len_utf8)
+                .sum::<usize>();
+            let mut items = self.complete_terms(&word);
+            replace_token(&mut items, text, offset - word.len(), offset + suffix);
             return Task::ready(Ok(CompletionResponse::Array(items)));
         }
 
@@ -252,11 +278,7 @@ impl CompletionProvider for TerraphimCompletionProvider {
         }
 
         // Trigger on alphanumeric for term completion
-        new_text
-            .chars()
-            .next()
-            .map(|c| c.is_alphanumeric())
-            .unwrap_or(false)
+        new_text.chars().next().is_some_and(char::is_alphanumeric)
     }
 }
 
@@ -276,11 +298,11 @@ mod tests {
         ];
 
         for (key, normalized, id) in terms {
-            let normalized_term = NormalizedTerm {
-                id,
-                value: NormalizedTermValue::from(normalized),
-                url: Some(format!("https://example.com/{}", normalized.replace(' ', "-"))),
-            };
+            let normalized_term = NormalizedTerm::new(id, NormalizedTermValue::from(normalized))
+                .with_url(format!(
+                    "https://example.com/{}",
+                    normalized.replace(' ', "-")
+                ));
             thesaurus.insert(NormalizedTermValue::from(key), normalized_term);
         }
 
@@ -297,9 +319,7 @@ mod tests {
 
     #[test]
     fn test_parse_slash_command_at_start() {
-        let provider = create_test_provider();
-
-        let result = provider.parse_slash_command("/he", 3);
+        let result = TerraphimCompletionProvider::parse_slash_command("/he", 3);
         assert!(result.is_some());
         let (pos, query) = result.unwrap();
         assert_eq!(pos, 0);
@@ -308,9 +328,7 @@ mod tests {
 
     #[test]
     fn test_parse_slash_command_after_newline() {
-        let provider = create_test_provider();
-
-        let result = provider.parse_slash_command("hello\n/co", 9);
+        let result = TerraphimCompletionProvider::parse_slash_command("hello\n/co", 9);
         assert!(result.is_some());
         let (pos, query) = result.unwrap();
         assert_eq!(pos, 6); // After \n
@@ -319,10 +337,8 @@ mod tests {
 
     #[test]
     fn test_parse_slash_command_not_at_line_start() {
-        let provider = create_test_provider();
-
         // Slash in middle of text should not trigger
-        let result = provider.parse_slash_command("hello /world", 12);
+        let result = TerraphimCompletionProvider::parse_slash_command("hello /world", 12);
         assert!(result.is_none());
     }
 
@@ -349,8 +365,9 @@ mod tests {
         let provider = create_test_provider();
 
         let items = provider.complete_slash_commands("he");
-        assert!(!items.is_empty());
-        assert!(items.iter().any(|i| i.label.contains("help") || i.label.contains("heading")));
+        assert!(items
+            .iter()
+            .any(|i| i.label.contains("help") || i.label.contains("heading")));
     }
 
     #[test]
@@ -358,15 +375,31 @@ mod tests {
         let provider = create_test_provider();
 
         let items = provider.complete_terms("mach");
-        assert!(!items.is_empty());
         assert!(items.iter().any(|i| i.label.contains("machine")));
     }
 
     #[test]
-    fn test_is_completion_trigger_slash() {
-        let provider = create_test_provider();
+    fn test_shared_provider_finds_machine_learning() {
+        let provider = crate::test_helpers::create_test_provider();
+        let items = provider.complete_terms("mach");
+        assert!(items.iter().any(|item| item.label == "machine learning"));
+    }
 
-        // This would need GPUI context, so we test the logic conceptually
-        // The actual test would require mocking Context<InputState>
+    #[test]
+    fn plain_text_role_keeps_slash_commands() {
+        let index =
+            build_autocomplete_index(Thesaurus::new("Plain text".to_owned()), None).unwrap();
+        let provider = TerraphimCompletionProvider::with_defaults(
+            Arc::new(index),
+            SlashCommandRegistry::with_defaults(),
+        );
+        assert_eq!(
+            provider.complete_terms("machine"),
+            [] as [CompletionItem; 0]
+        );
+        assert!(provider
+            .complete_slash_commands("help")
+            .iter()
+            .any(|item| item.label == "/help"));
     }
 }

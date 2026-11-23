@@ -10,21 +10,22 @@ pub struct HelpCommand {
 
 impl HelpCommand {
     /// Create a new help command with reference to the command registry
+    #[must_use]
     pub fn new(registry: SlashCommandRegistry) -> Self {
         Self { registry }
     }
 }
 
 impl SlashCommand for HelpCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "help"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Show available commands"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /help\n\nDisplays a list of all available slash commands with their descriptions."
     }
 
@@ -34,9 +35,9 @@ impl SlashCommand for HelpCommand {
             .names()
             .iter()
             .filter_map(|name| {
-                self.registry.get(name).map(|cmd| {
-                    format!("/{} - {}", cmd.name(), cmd.description())
-                })
+                self.registry
+                    .get(name)
+                    .map(|cmd| format!("/{} - {}", cmd.name(), cmd.description()))
             })
             .collect();
 
@@ -54,7 +55,6 @@ impl SlashCommand for HelpCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::HeadingCommand;
 
     #[test]
     fn test_help_command_name() {
@@ -67,6 +67,6 @@ mod tests {
     fn test_help_command_description() {
         let registry = SlashCommandRegistry::new();
         let cmd = HelpCommand::new(registry);
-        assert!(!cmd.description().is_empty());
+        assert_eq!(cmd.description(), "Show available commands");
     }
 }

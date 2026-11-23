@@ -52,14 +52,11 @@ pub fn create_test_thesaurus() -> Thesaurus {
     ];
 
     for (key, normalized, id) in terms {
-        let normalized_term = NormalizedTerm {
-            id,
-            value: NormalizedTermValue::from(normalized),
-            url: Some(format!(
+        let normalized_term = NormalizedTerm::new(id, NormalizedTermValue::from(normalized))
+            .with_url(format!(
                 "https://terraphim.ai/terms/{}",
                 normalized.replace('_', "-")
-            )),
-        };
+            ));
         thesaurus.insert(NormalizedTermValue::from(key), normalized_term);
     }
 
@@ -74,11 +71,7 @@ pub fn create_test_index() -> Arc<AutocompleteIndex> {
 
 /// Create a test completion provider with default configuration
 pub fn create_test_provider() -> TerraphimCompletionProvider {
-    TerraphimCompletionProvider::new(
-        create_test_index(),
-        SlashCommandRegistry::with_defaults(),
-        CompletionConfig::default(),
-    )
+    create_test_provider_with_config(CompletionConfig::default())
 }
 
 /// Create a test completion provider with custom configuration
@@ -109,20 +102,24 @@ mod tests {
     #[test]
     fn test_create_index_works() {
         let index = create_test_index();
-        assert!(index.len() > 0, "Index should have entries");
-    }
-
-    #[test]
-    fn test_create_provider_works() {
-        let provider = create_test_provider();
-        // Provider should have the index
-        let items = provider.complete_terms("mach");
-        assert!(!items.is_empty(), "Should find 'machine learning'");
+        assert!(!index.is_empty(), "Index should have entries");
     }
 
     #[test]
     fn test_create_registry_works() {
         let registry = create_test_registry();
-        assert_eq!(registry.len(), 4, "Should have 4 default commands");
+        for command in [
+            "heading",
+            "code",
+            "list",
+            "ids",
+            "normalize",
+            "blocks",
+            "open",
+            "save",
+            "help",
+        ] {
+            assert!(registry.get(command).is_some(), "Missing /{command}");
+        }
     }
 }

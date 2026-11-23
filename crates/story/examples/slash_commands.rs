@@ -29,7 +29,6 @@ struct SlashCommandsStory {
 }
 
 struct CommandInfo {
-    name: SharedString,
     description: SharedString,
     example: SharedString,
 }
@@ -45,7 +44,6 @@ impl SlashCommandsStory {
             .filter("")
             .into_iter()
             .map(|cmd| CommandInfo {
-                name: SharedString::from(cmd.name().to_string()),
                 description: SharedString::from(cmd.description().to_string()),
                 example: SharedString::from(format!("/{}", cmd.name())),
             })

@@ -1,0 +1,14 @@
+manifest_version = 1
+identifier = "ai.terraphim.gpui-editor"
+name = "Terraphim Editor"
+version = "0.1.0"
+description = "Edit Markdown and cycle knowledge-graph alternatives"
+executable = "terraphim-gpui-editor"
+categories = ["Utility", "TextEditor"]
+
+[permissions]
+gpu = true
+
+[[permissions.filesystem]]
+dir = "documents"
+access = "write"

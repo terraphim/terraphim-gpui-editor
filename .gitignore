@@ -1,6 +1,5 @@
 # Rust build artifacts
 /target/
-Cargo.lock
 
 # IDE
 .idea/
@@ -16,3 +15,9 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Headless acceptance test bytecode
+__pycache__/
+
+# Standalone story example lockfile
+/crates/story/Cargo.lock

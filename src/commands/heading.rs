@@ -7,15 +7,15 @@ use gpui::{App, Window};
 pub struct HeadingCommand;
 
 impl SlashCommand for HeadingCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "heading"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Insert heading (# to ######)"
     }
 
-    fn help(&self) -> &str {
+    fn help(&self) -> &'static str {
         "Usage: /heading [level]\n\n\
          Inserts a markdown heading.\n\
          Level can be 1-6 (default: 1).\n\n\
@@ -37,20 +37,15 @@ impl SlashCommand for HeadingCommand {
             .clamp(1, 6);
 
         let prefix = "#".repeat(level);
-        CommandOutput::insert(format!("{} ", prefix))
+        CommandOutput::insert(format!("{prefix} "))
     }
 
-    fn complete_argument(
-        &self,
-        partial: &str,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> Vec<String> {
+    fn complete_argument(&self, partial: &str, _window: &mut Window, _cx: &mut App) -> Vec<String> {
         let levels = ["1", "2", "3", "4", "5", "6"];
         levels
             .iter()
             .filter(|l| l.starts_with(partial))
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect()
     }
 }
