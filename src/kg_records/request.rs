@@ -1,20 +1,59 @@
 //! Local JSON requests for the same Markdown role editor used by GPUI.
 
 use super::{RoleSource, Source};
-use anyhow::{ensure, Result};
+use crate::{document, SlashCommandRegistry, TerraphimCompletionProvider};
+use anyhow::{ensure, Context as _, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
+use terraphim_alternatives::{byte_to_utf16, utf16_to_byte, Document};
+use terraphim_automata::autocomplete::build_autocomplete_index;
+use terraphim_lsp_core::KgEngine;
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Request {
     Load,
+    Complete {
+        text: String,
+        offset: usize,
+        revision: Option<String>,
+    },
+    Cycle {
+        text: String,
+        offset: usize,
+        forward: bool,
+        revision: Option<String>,
+    },
     Save {
         revision: String,
         concept_id: String,
         synonyms: Vec<String>,
     },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Response {
+    Snapshot(Snapshot),
+    Completion {
+        revision: String,
+        items: Vec<Completion>,
+    },
+    Cycle {
+        revision: String,
+        text: String,
+        caret: usize,
+    },
+}
+
+#[derive(Serialize)]
+struct Completion {
+    label: String,
+    detail: Option<String>,
+    insert_text: String,
+    start: usize,
+    end: usize,
 }
 
 #[derive(Serialize)]
@@ -46,25 +85,69 @@ pub fn markdown_kg_request(root: &Path, request: &[u8]) -> Value {
     }
 }
 
-fn execute(root: &Path, payload: &[u8]) -> Result<Snapshot> {
+fn execute(root: &Path, payload: &[u8]) -> Result<Response> {
     let request = serde_json::from_slice::<Request>(payload)?;
     ensure!(root.is_dir(), "Supply a Markdown role directory");
     let RoleSource(Source::Markdown(mut source)) = RoleSource::load(root)? else {
         anyhow::bail!("Supply a Markdown role directory");
     };
-    if let Request::Save {
-        revision,
-        concept_id,
-        synonyms,
-    } = request
-    {
-        ensure!(
-            revision == source.revision(),
-            "The Markdown role changed on disk. Reload it before editing its synonyms."
-        );
-        let mut record = source.record(concept_id.parse()?)?;
-        record.synonyms = synonyms;
-        source.save(&record)?;
+    let revision = source.revision();
+    match request {
+        Request::Load => {}
+        Request::Save {
+            revision: expected,
+            concept_id,
+            synonyms,
+        } => {
+            check_revision(Some(&expected), &revision)?;
+            let mut record = source.record(concept_id.parse()?)?;
+            record.synonyms = synonyms;
+            source.save(&record)?;
+        }
+        Request::Complete {
+            text,
+            offset,
+            revision: expected,
+        } => {
+            check_revision(expected.as_deref(), &revision)?;
+            let byte = utf16_to_byte(&text, offset).context("Invalid UTF-16 cursor offset")?;
+            let index = Arc::new(build_autocomplete_index(source.thesaurus(), None)?);
+            let provider =
+                TerraphimCompletionProvider::with_defaults(index, SlashCommandRegistry::new());
+            let mut items = Vec::new();
+            if let Some((range, suggestions)) = provider.term_completions(&text, byte) {
+                let start =
+                    byte_to_utf16(&text, range.start).context("Invalid completion start")?;
+                let end = byte_to_utf16(&text, range.end).context("Invalid completion end")?;
+                items.extend(suggestions.into_iter().filter_map(|item| {
+                    Some(Completion {
+                        label: item.label,
+                        detail: item.detail,
+                        insert_text: item.insert_text?,
+                        start,
+                        end,
+                    })
+                }));
+            }
+            return Ok(Response::Completion { revision, items });
+        }
+        Request::Cycle {
+            text,
+            offset,
+            forward,
+            revision: expected,
+        } => {
+            check_revision(expected.as_deref(), &revision)?;
+            utf16_to_byte(&text, offset).context("Invalid UTF-16 cursor offset")?;
+            let graph = KgEngine::new(&source.thesaurus())?;
+            let mut document = Document::new(text);
+            let caret = document::cycle_kg(&mut document, &graph, offset, forward)?;
+            return Ok(Response::Cycle {
+                revision,
+                text: document.body,
+                caret,
+            });
+        }
     }
 
     let mut entries = Vec::new();
@@ -88,10 +171,18 @@ fn execute(root: &Path, payload: &[u8]) -> Result<Snapshot> {
         });
     }
     entries.sort_by(|left, right| left.term.cmp(&right.term));
-    Ok(Snapshot {
+    Ok(Response::Snapshot(Snapshot {
         revision: source.revision(),
         entries,
-    })
+    }))
+}
+
+fn check_revision(expected: Option<&str>, actual: &str) -> Result<()> {
+    ensure!(
+        expected.is_none_or(|value| value == actual),
+        "The Markdown role changed on disk. Reload it before editing its synonyms."
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -99,6 +190,60 @@ mod tests {
     use super::markdown_kg_request;
     use serde_json::json;
     use std::fs;
+
+    fn request(root: &std::path::Path, value: &serde_json::Value) -> serde_json::Value {
+        markdown_kg_request(root, value.to_string().as_bytes())
+    }
+
+    #[test]
+    fn term_requests_share_gpui_ranges_and_kg_cycling() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("eraser.md"), "# Eraser\n\nsynonyms:: rubber\n").unwrap();
+        let role = request(root, &json!({"op":"load"}));
+        let revision = &role["result"]["revision"];
+        let complete = request(
+            root,
+            &json!({
+                "op":"complete", "text":"🦀 A rubbxx", "offset":9, "revision":revision
+            }),
+        );
+        assert_eq!(complete["ok"], true);
+        let first = &complete["result"]["items"][0];
+        assert_eq!(first["label"], "rubber");
+        assert_eq!(first["insert_text"], "rubber");
+        assert_eq!(first["start"], 5);
+        assert_eq!(first["end"], 11);
+        assert_eq!(complete["result"]["revision"], *revision);
+
+        let cycled = request(
+            root,
+            &json!({
+                "op":"cycle", "text":"🦀 An ERASER.", "offset":8, "forward":true, "revision":revision
+            }),
+        );
+        assert_eq!(cycled["ok"], true);
+        assert_eq!(cycled["result"]["text"], "🦀 A RUBBER.");
+        assert_eq!(cycled["result"]["caret"], 5);
+        let back = request(
+            root,
+            &json!({
+                "op":"cycle", "text":cycled["result"]["text"], "offset":5,
+                "forward":false, "revision":revision
+            }),
+        );
+        assert_eq!(back["result"]["text"], "🦀 An ERASER.");
+
+        let invalid = request(root, &json!({"op":"complete", "text":"🦀", "offset":1}));
+        assert_eq!(invalid["ok"], false);
+        let stale = request(
+            root,
+            &json!({
+                "op":"cycle", "text":"eraser", "offset":1, "forward":true, "revision":"stale"
+            }),
+        );
+        assert_eq!(stale["ok"], false);
+    }
 
     #[test]
     fn one_shot_requests_save_and_reject_stale_role_snapshots() {

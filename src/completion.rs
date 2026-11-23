@@ -10,7 +10,7 @@ use lsp_types::{
     CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
     Documentation, InsertTextFormat, MarkupContent, MarkupKind, TextEdit,
 };
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 use terraphim_automata::autocomplete::{
     autocomplete_search, fuzzy_autocomplete_search, AutocompleteIndex, AutocompleteResult,
 };
@@ -166,6 +166,24 @@ impl TerraphimCompletionProvider {
             .collect()
     }
 
+    pub(crate) fn term_completions(
+        &self,
+        text: &str,
+        offset: usize,
+    ) -> Option<(Range<usize>, Vec<CompletionItem>)> {
+        if !text.is_char_boundary(offset) {
+            return None;
+        }
+        let word = self.get_current_word(text, offset)?;
+        let suffix: usize = text[offset..]
+            .chars()
+            .take_while(|&character| is_term_character(character))
+            .map(char::len_utf8)
+            .sum();
+        let range = offset - word.len()..offset + suffix;
+        Some((range, self.complete_terms(&word)))
+    }
+
     /// Get term autocomplete suggestions
     fn complete_terms(&self, prefix: &str) -> Vec<CompletionItem> {
         let use_fuzzy = self.config.use_fuzzy_for_short_prefixes
@@ -252,14 +270,8 @@ impl CompletionProvider for TerraphimCompletionProvider {
         }
 
         // Check for term autocomplete
-        if let Some(word) = self.get_current_word(&text_str, offset) {
-            let suffix = text_str[offset..]
-                .chars()
-                .take_while(|&character| is_term_character(character))
-                .map(char::len_utf8)
-                .sum::<usize>();
-            let mut items = self.complete_terms(&word);
-            replace_token(&mut items, text, offset - word.len(), offset + suffix);
+        if let Some((range, mut items)) = self.term_completions(&text_str, offset) {
+            replace_token(&mut items, text, range.start, range.end);
             return Task::ready(Ok(CompletionResponse::Array(items)));
         }
 

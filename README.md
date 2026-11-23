@@ -48,7 +48,8 @@ outside the graph can have document-specific alternatives.
 
 Launch the NSH desktop prototype from a shell with this editor binary on
 `PATH` and `TERRAPHIM_KG_DIR` set to the absolute path of the role directory.
-NSH uses the editor's local request interface to read and save synonyms.
+NSH uses the editor's local request interface to read and save synonyms,
+complete terms, and cycle synonyms using the same Rust code as GPUI.
 
 To make a current Grep thesaurus from the source role:
 
